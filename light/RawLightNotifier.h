@@ -10,9 +10,9 @@
 
 class RawLightNotifier : public SensorNotifier {
   public:
-    RawLightNotifier(sp<ISensorManager> manager, process_msg_t processMsg);
+    RawLightNotifier(sp<ISensorManager> manager);
     ~RawLightNotifier();
 
   protected:
-    void pollingFunction();
+    void notify();
 };

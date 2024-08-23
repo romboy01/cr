@@ -6,18 +6,21 @@
 
 #define LOG_TAG "RawLightNotifier"
 
+#include "RawLightNotifier.h"
+
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
 #include <display/drm/mi_disp.h>
 #include <poll.h>
 #include <sys/ioctl.h>
 
-#include "RawLightNotifier.h"
 #include "SensorNotifierUtils.h"
+#include "SscCalApi.h"
 
-#define DISP_FEATURE_PATH "/dev/mi_display/disp_feature"
+static const std::string kDispFeatureDevice = "/dev/mi_display/disp_feature";
 
-#define SENSOR_TYPE_XIAOMI_SENSOR_AMBIENTLIGHT_RAW 33171111
+// sensor: xiaomi.sensor.ambientlight.raw
+static const uint32_t kSensorTypeAmbientlightRaw = 33171111;
 
 using android::hardware::Return;
 using android::hardware::Void;
@@ -27,45 +30,39 @@ namespace {
 
 class RawLightSensorCallback : public IEventQueueCallback {
   public:
-    RawLightSensorCallback(process_msg_t processMsg) : mProcessMsg(processMsg) {}
-
     Return<void> onEvent(const Event& e) {
         _oem_msg* msg = new _oem_msg;
-        msg->notify_type = REPORT_VALUE;
+        msg->notifyType = REPORT_VALUE;
         msg->value = e.u.vec4.y;
-        msg->notify_type_float = msg->notify_type;
+        msg->notifyTypeFloat = msg->notifyType;
         msg->unknown1 = 2;
         msg->unknown2 = 5;
-        msg->sensor_type = SENSOR_TYPE_XIAOMI_SENSOR_AMBIENTLIGHT_RAW;
-        if (mProcessMsg != NULL) {
-            mProcessMsg(msg);
-        }
+        msg->sensorType = kSensorTypeAmbientlightRaw;
+
+        SscCalApiWrapper::getInstance().processMsg(msg);
 
         return Void();
     }
-
-  private:
-    process_msg_t mProcessMsg;
 };
 
 }  // namespace
 
-RawLightNotifier::RawLightNotifier(sp<ISensorManager> manager, process_msg_t processMsg)
-    : SensorNotifier(manager, processMsg) {
+RawLightNotifier::RawLightNotifier(sp<ISensorManager> manager) : SensorNotifier(manager) {
     initializeSensorQueue("xiaomi.sensor.ambientlight.factory", false,
-                          new RawLightSensorCallback(processMsg));
+                          new RawLightSensorCallback());
 }
 
 RawLightNotifier::~RawLightNotifier() {
     deactivate();
 }
 
-void RawLightNotifier::pollingFunction() {
+void RawLightNotifier::notify() {
     Result res;
 
-    android::base::unique_fd disp_fd_ = android::base::unique_fd(open(DISP_FEATURE_PATH, O_RDWR));
+    android::base::unique_fd disp_fd_ =
+            android::base::unique_fd(open(kDispFeatureDevice.c_str(), O_RDWR));
     if (disp_fd_.get() == -1) {
-        LOG(ERROR) << "failed to open " << DISP_FEATURE_PATH;
+        LOG(ERROR) << "failed to open " << kDispFeatureDevice;
     }
 
     // Enable the sensor initially
@@ -89,7 +86,7 @@ void RawLightNotifier::pollingFunction() {
     while (mActive) {
         int rc = poll(&dispEventPoll, 1, -1);
         if (rc < 0) {
-            LOG(ERROR) << "failed to poll " << DISP_FEATURE_PATH << ", err: " << rc;
+            LOG(ERROR) << "failed to poll " << kDispFeatureDevice << ", err: " << rc;
             continue;
         }
 
